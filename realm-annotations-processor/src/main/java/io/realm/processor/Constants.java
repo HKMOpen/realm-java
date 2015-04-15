@@ -14,25 +14,10 @@
  * limitations under the License.
  */
 
-#ifndef REALM_COLUMN_TYPE_UTIL_H
-#define REALM_COLUMN_TYPE_UTIL_H
+package io.realm.processor;
 
-#include <jni.h>
-#include <realm.hpp>
-
-#ifdef __cplusplus
-
-using realm::DataType;
-
-extern "C" {
-
-#endif
-
-DataType GetColumnTypeFromJColumnType(JNIEnv* env, jobject jColumnType);
-jobject GetJColumnTypeFromColumnType(JNIEnv* env, DataType columnType);
-
-#ifdef __cplusplus
+public class Constants {
+    public static final String REALM_PACKAGE_NAME = "io.realm";
+    public static final String PROXY_SUFFIX = "RealmProxy";
+    public static final String TABLE_PREFIX = "class_";
 }
-#endif
-
-#endif

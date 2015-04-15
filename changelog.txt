@@ -1,9 +1,21 @@
+0.81
+ * Realm.copyToRealm() now correctly handles referenced child objects that are already in the Realm.
+ * The ARM64 binary is now properly a part of the Eclipse distribution package.
+ * A RealmMigrationExceptionNeeded is now properly thrown if @Index and @PrimaryKey are not set correctly during a migration.
+ * Fixed bug causing Realms to be cached even though they failed to open correctly.
+ * Added Realm.deleteRealmFile(File) method.
+ * Fixed bug causing queries to fail if multiple Realms has different field ordering.
+ * Fixed bug when using Realm.copyToRealm() with a primary key could crash if default value was already used in the Realm.
+
 0.80
 * Queries on relationships can be case sensitive.
 * Fixed bug when importing JSONObjects containing NULL values.
-* Fixed crash when trying to remove last element of a RealmList.s
+* Fixed crash when trying to remove last element of a RealmList.
 * Fixed bug crashing annotation processor when using "name" in model classes for RealmObject references
 * Fixed problem occurring when opening an encrypted Realm with two different instances of the same key.
+* Version checker no longer reports that updates are available when latest version is used.
+* Added support for static fields in RealmObjects.
+* Realm.writeEncryptedCopyTo() has been reenabled.
 
 0.79.1
  * copyToRealm() no longer crashes on cyclic data structures.

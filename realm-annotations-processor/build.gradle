@@ -1,4 +1,14 @@
+buildscript {
+    repositories {
+        jcenter()
+    }
+    dependencies {
+        classpath 'com.github.jengelman.gradle.plugins:shadow:1.2.1'
+    }
+}
+
 apply plugin: 'java'
+apply plugin: 'com.github.johnrengelman.shadow'
 
 version = new File("${projectDir}/../version.txt").text
 sourceCompatibility = '1.6'
@@ -28,6 +38,12 @@ jar {
     from configurations.compile.findAll {it.name.contains('javawriter')}.collect { zipTree(it) }
 }
 
+shadowJar {
+    relocate 'com.squareup.javawriter', 'io.realm.processor.javawriter'
+    exclude 'io/realm/annotations/**'
+    classifier = ''
+}
+
 //for Ant filter
 import org.apache.tools.ant.filters.ReplaceTokens
 
@@ -35,6 +51,7 @@ task generateVersionClass(type: Copy) {
     from 'src/main/templates/Version.java'
     into 'build/generated-src/main/java/io/realm/processor'
     filter(ReplaceTokens, tokens: [version: version])
+    outputs.upToDateWhen { false }
 }
 
 compileJava.dependsOn generateVersionClass
@@ -57,7 +74,7 @@ task assembleRealm(type: GradleBuild) {
     tasks = ['assemble']
 }
 
-tasks.assemble {
+tasks.compileJava {
     dependsOn compileAnnotations
 }
 

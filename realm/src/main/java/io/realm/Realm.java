@@ -53,6 +53,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import io.realm.exceptions.RealmException;
 import io.realm.exceptions.RealmIOException;
 import io.realm.exceptions.RealmMigrationNeededException;
+import io.realm.internal.ColumnIndices;
 import io.realm.internal.ColumnType;
 import io.realm.internal.ImplicitTransaction;
 import io.realm.internal.RealmJson;
@@ -168,13 +169,15 @@ public final class Realm implements Closeable {
     private final Map<Class<?>, Method> initTableMethods = new HashMap<Class<?>, Method>();
     private final Map<Class<?>, Method> insertOrUpdateMethods = new HashMap<Class<?>, Method>();
     private final Map<Class<?>, Constructor> generatedConstructors = new HashMap<Class<?>, Constructor>();
+
+    // Maps classes to the name of the proxied class. Examples: Dog.class -> Dog, DogRealmProxy -> Dog
+    private final Map<Class<?>, String> proxiedClassNames = new HashMap<Class<?>, String>();
     private final List<RealmChangeListener> changeListeners = new ArrayList<RealmChangeListener>();
     private final Map<Class<?>, Table> tables = new HashMap<Class<?>, Table>();
     private static final Set<Class<? extends RealmObject>> customSchema = new HashSet<Class<? extends RealmObject>>();
     private static final long UNVERSIONED = -1;
 
-    // Package protected to be reachable by proxy classes
-    static final Map<String, Map<String, Long>> columnIndices = new HashMap<String, Map<String, Long>>();
+    final ColumnIndices columnIndices = new ColumnIndices();
 
     static {
         RealmLog.add(BuildConfig.DEBUG ? new DebugAndroidLogger() : new ReleaseAndroidLogger());
@@ -210,8 +213,8 @@ public final class Realm implements Closeable {
     protected void finalize() throws Throwable {
         if (sharedGroup != null) {
             RealmLog.w("Remember to call close() on all Realm instances. " +
-                    "Realm " + path + " is being finalized without being closed, " +
-                    "this can lead to running out of native memory."
+                            "Realm " + path + " is being finalized without being closed, " +
+                            "this can lead to running out of native memory."
             );
         }
         super.finalize();
@@ -317,12 +320,14 @@ public final class Realm implements Closeable {
 
     // Public because of migrations
     public Table getTable(Class<?> clazz) {
-        String simpleClassName = simpleClassNames.get(clazz);
-        if (simpleClassName == null) {
-            simpleClassName = clazz.getSimpleName();
-            simpleClassNames.put(clazz, simpleClassName);
+        final String proxySuffix = "RealmProxy";
+        String proxiedClassName = proxiedClassNames.get(clazz);
+        if (proxiedClassName == null) {
+            String classSimpleName = clazz.getSimpleName();
+            proxiedClassName = classSimpleName.replace(proxySuffix, "");
+            proxiedClassNames.put(clazz, proxiedClassName);
         }
-        return transaction.getTable(TABLE_PREFIX + simpleClassName);
+        return transaction.getTable(TABLE_PREFIX + proxiedClassName);
     }
 
     /**
@@ -485,25 +490,16 @@ public final class Realm implements Closeable {
     }
 
     private static synchronized Realm createAndValidate(String absolutePath, byte[] key, boolean validateSchema,
-                                            boolean autoRefresh) {
+                                                        boolean autoRefresh) {
+        // Check thread local cache for existing Realm
         int id = absolutePath.hashCode();
         Map<Integer, Integer> localRefCount = referenceCount.get();
         Integer references = localRefCount.get(id);
         if (references == null) {
             references = 0;
         }
-        if (references == 0) {
-            AtomicInteger counter = openRealms.get(id);
-            if (counter == null) {
-                openRealms.put(id, new AtomicInteger(1));
-            } else {
-                counter.incrementAndGet();
-            }
-
-        }
         Map<Integer, Realm> realms = realmsCache.get();
         Realm realm = realms.get(absolutePath.hashCode());
-
         if (realm != null) {
             if (!Arrays.equals(realm.key, key)) {
                 throw new IllegalStateException(DIFFERENT_KEY_MESSAGE);
@@ -519,6 +515,17 @@ public final class Realm implements Closeable {
         realmsCache.set(realms);
         localRefCount.put(id, references + 1);
 
+        // Increment global reference counter
+        if (references == 0) {
+            AtomicInteger counter = openRealms.get(id);
+            if (counter == null) {
+                openRealms.put(id, new AtomicInteger(1));
+            } else {
+                counter.incrementAndGet();
+            }
+        }
+
+        // Initialize Realm schema if needed
         if (validateSchema) {
             try {
                 initializeRealm(realm);
@@ -625,34 +632,22 @@ public final class Realm implements Closeable {
                 }
 
                 // Populate the columnIndices table
-                Method fieldNamesMethod;
+                Method columnIndiciesMethod;
                 try {
-                    fieldNamesMethod = generatedClass.getMethod("getFieldNames");
+                    columnIndiciesMethod = generatedClass.getMethod("getColumnIndices");
                 } catch (NoSuchMethodException e) {
-                    throw new RealmException("Could not find the getFieldNames method in the generated " + generatedClassName + " class: " + APT_NOT_EXECUTED_MESSAGE);
+                    throw new RealmException("Could not find the getColumnIndices method in the generated " + generatedClassName + " class: " + APT_NOT_EXECUTED_MESSAGE);
                 }
-                List<String> fieldNames;
+                Map<String,Long> indices;
                 try {
                     //noinspection unchecked
-                    fieldNames = (List<String>) fieldNamesMethod.invoke(null);
+                    indices = (Map<String,Long>) columnIndiciesMethod.invoke(null);
                 } catch (IllegalAccessException e) {
-                    throw new RealmException("Could not execute the getFieldNames method in the generated " + generatedClassName + " class: " + APT_NOT_EXECUTED_MESSAGE);
+                    throw new RealmException("Could not execute the getColumnIndices method in the generated " + generatedClassName + " class", e);
                 } catch (InvocationTargetException e) {
-                    throw new RealmException("An exception was thrown in the getFieldNames method in the generated " + generatedClassName + " class: " + APT_NOT_EXECUTED_MESSAGE);
+                    throw new RealmException("An exception was thrown in the getColumnIndices method in the generated " + generatedClassName + " class", e);
                 }
-                Table table = realm.transaction.getTable(TABLE_PREFIX + modelClassName);
-                for (String fieldName : fieldNames) {
-                    long columnIndex = table.getColumnIndex(fieldName);
-                    if (columnIndex == -1) {
-                        throw new RealmMigrationNeededException("Field '" + fieldName + "' not found for type '" + modelClassName + "'");
-                    }
-                    Map<String, Long> innerMap = columnIndices.get(modelClassName);
-                    if (innerMap == null) {
-                        innerMap = new HashMap<String, Long>();
-                    }
-                    innerMap.put(fieldName, columnIndex);
-                    columnIndices.put(modelClassName, innerMap);
-                }
+                realm.columnIndices.addClass((Class<? extends RealmObject>) generatedClass.getSuperclass(), indices);
             }
         } finally {
             if (commitNeeded) {
@@ -1035,17 +1030,12 @@ public final class Realm implements Closeable {
      * @param destination File to save the Realm to
      * @throws java.io.IOException if any write operation fails
      */
-    @Deprecated
     public void writeEncryptedCopyTo(File destination, byte[] key) throws IOException {
         if (destination == null) {
             throw new IllegalArgumentException("The destination argument cannot be null");
         }
         checkIfValid();
-        if (key != null) {
-            throw new RealmException("This method has been disabled");
-        } else {
-            transaction.writeToFile(destination, key);
-        }
+        transaction.writeToFile(destination, key);
     }
 
 
@@ -1057,8 +1047,29 @@ public final class Realm implements Closeable {
      * @throws RealmException An object could not be created
      */
     public <E extends RealmObject> E createObject(Class<E> clazz) {
-        Table table;
-        table = tables.get(clazz);
+        Table table = initTable(clazz);
+        long rowIndex = table.addEmptyRow();
+        return get(clazz, rowIndex);
+    }
+
+    /**
+     * Creates a new object inside the Realm with the Primary key value initially set.
+     * If the value violates the primary key constraint, no object will be added and a
+     * {@link RealmException} will be thrown.
+     *
+     * @param clazz The Class of the object to create
+     * @param primaryKeyValue Value for the primary key field.
+     * @return The new object
+     * @throws {@link RealmException} if object could not be created.
+     */
+    <E extends RealmObject> E createObject(Class<E> clazz, Object primaryKeyValue) {
+        Table table = initTable(clazz);
+        long rowIndex = table.addEmptyRowWithPrimaryKey(primaryKeyValue);
+        return get(clazz, rowIndex);
+    }
+
+    private <E extends RealmObject> Table initTable(Class<E> clazz) {
+        Table table = tables.get(clazz);
         if (table == null) {
             Class<?> generatedClass = getProxyClass(clazz);
 
@@ -1083,17 +1094,12 @@ public final class Realm implements Closeable {
             }
         }
 
-        long rowIndex = table.addEmptyRow();
-        return get(clazz, rowIndex);
+        return table;
     }
 
     private Class<?> getProxyClass(Class<?> clazz) {
 
-        String simpleClassName = simpleClassNames.get(clazz);
-        if (simpleClassName == null) {
-            simpleClassName = clazz.getSimpleName();
-            simpleClassNames.put(clazz, simpleClassName);
-        }
+        String simpleClassName = getClassSimpleName(clazz);
         String generatedClassName = getProxyClassName(simpleClassName);
 
         Class<?> generatedClass = generatedClasses.get(generatedClassName);
@@ -1119,12 +1125,7 @@ public final class Realm implements Closeable {
 
         Table table = tables.get(clazz);
         if (table == null) {
-            String simpleClassName = simpleClassNames.get(clazz);
-            if (simpleClassName == null) {
-                simpleClassName = clazz.getSimpleName();
-                simpleClassNames.put(clazz, simpleClassName);
-            }
-
+            String simpleClassName = getClassSimpleName(clazz);
             table = transaction.getTable(TABLE_PREFIX + simpleClassName);
             tables.put(clazz, table);
         }
@@ -1133,13 +1134,8 @@ public final class Realm implements Closeable {
 
         Constructor constructor = generatedConstructors.get(clazz);
         if (constructor == null) {
-            String simpleClassName = simpleClassNames.get(clazz);
-            if (simpleClassName == null) {
-                simpleClassName = clazz.getSimpleName();
-                simpleClassNames.put(clazz, simpleClassName);
-            }
+            String simpleClassName = getClassSimpleName(clazz);
             String generatedClassName = getProxyClassName(simpleClassName);
-
 
             Class<?> generatedClass = generatedClasses.get(generatedClassName);
             if (generatedClass == null) {
@@ -1190,10 +1186,6 @@ public final class Realm implements Closeable {
      */
     public <E extends RealmObject> E copyToRealm(E object) {
         checkNotNullObject(object);
-        if (isObjectInRealm(object)) {
-            return object;
-        }
-
         return copyOrUpdate(object, false);
     }
 
@@ -1210,10 +1202,6 @@ public final class Realm implements Closeable {
     public <E extends RealmObject> E copyToRealmOrUpdate(E object) {
         checkNotNullObject(object);
         checkHasPrimaryKey(object);
-        if (isObjectInRealm(object)) {
-            return object;
-        }
-
         return copyOrUpdate(object, true);
     }
 
@@ -1268,12 +1256,7 @@ public final class Realm implements Closeable {
     }
 
     boolean contains(Class<?> clazz) {
-        String simpleClassName = simpleClassNames.get(clazz);
-        if (simpleClassName == null) {
-            simpleClassName = clazz.getSimpleName();
-            simpleClassNames.put(clazz, simpleClassName);
-        }
-        return transaction.hasTable(TABLE_PREFIX + simpleClassName);
+        return transaction.hasTable(TABLE_PREFIX + getClassSimpleName(clazz));
     }
 
     /**
@@ -1317,8 +1300,8 @@ public final class Realm implements Closeable {
         checkIfValid();
         Table table = getTable(clazz);
         TableView.Order order = sortAscending ? TableView.Order.ascending : TableView.Order.descending;
-        Long columnIndex = columnIndices.get(simpleClassNames.get(clazz)).get(fieldName);
-        if (columnIndex == null || columnIndex < 0) {
+        long columnIndex = columnIndices.getColumnIndex(clazz, fieldName);
+        if (columnIndex < 0) {
             throw new IllegalArgumentException(String.format("Field name '%s' does not exist.", fieldName));
         }
 
@@ -1631,10 +1614,6 @@ public final class Realm implements Closeable {
         }
     }
 
-    private <E extends RealmObject> boolean isObjectInRealm(E object) {
-        return (object.realm != null && object.realm.id == this.id);
-    }
-
     private <E extends RealmObject> void checkNotNullObject(E object) {
         if (object == null) {
             throw new IllegalArgumentException("Null objects cannot be copied into Realm.");
@@ -1642,10 +1621,9 @@ public final class Realm implements Closeable {
     }
 
     private <E extends RealmObject> void checkHasPrimaryKey(E object) {
-
         Class<? extends RealmObject> objectClass = object.getClass();
         if (!getTable(objectClass).hasPrimaryKey()) {
-            throw new IllegalArgumentException("RealmObject has no @PrimaryKey defined: " + simpleClassNames.get(objectClass));
+            throw new IllegalArgumentException("RealmObject has no @PrimaryKey defined: " + getClassSimpleName(objectClass));
         }
     }
 
@@ -1681,7 +1659,7 @@ public final class Realm implements Closeable {
 
     /**
      * Delete the Realm file from the filesystem for the default Realm (named "default.realm").
-     * The realm must be unused and closed before calling this method.
+     * The Realm must be unused and closed before calling this method.
      * WARNING: Your Realm must not be open (typically when your app launch).
      *
      * @param context an Android {@link android.content.Context}.
@@ -1694,26 +1672,40 @@ public final class Realm implements Closeable {
 
     /**
      * Delete the Realm file from the filesystem for a custom named Realm.
-     * The realm must be unused and closed before calling this method.
+     * The Realm must be unused and closed before calling this method.
      *
      * @param context  an Android {@link android.content.Context}.
      * @param fileName the name of the custom Realm (i.e. "myCustomRealm.realm").
      * @return false if a file could not be deleted. The failing file will be logged.
      */
-    public static synchronized boolean deleteRealmFile(Context context, String fileName) {
+    public static boolean deleteRealmFile(Context context, String fileName) {
+        return deleteRealmFile(new File(context.getFilesDir(), fileName));
+    }
+
+    /**
+     * Delete the Realm file from the filesystem for a custom named Realm.
+     * The Realm must be unused and closed before calling this method.
+     *
+     * @param realmFile The reference to the Realm file.
+     * @return false if a file could not be deleted. The failing file will be logged.
+     */
+    public static synchronized boolean deleteRealmFile(File realmFile) {
         boolean result = true;
-        File writableFolder = context.getFilesDir();
+        File realmFolder = realmFile.getParentFile();
+        String fileName = realmFile.getName();
 
-        File realmFile = new File(writableFolder, fileName);
         int realmId = realmFile.getAbsolutePath().hashCode();
-
         AtomicInteger counter = openRealms.get(realmId);
         if (counter != null && counter.get() > 0) {
             throw new IllegalStateException("It's not allowed to delete the file associated with an open Realm. " +
                     "Remember to close() all the instances of the Realm before deleting its file.");
         }
 
-        List<File> filesToDelete = Arrays.asList(realmFile, new File(writableFolder, fileName + ".lock"));
+        List<File> filesToDelete = Arrays.asList(realmFile,
+                new File(realmFolder, fileName + ".lock"),
+                new File(realmFolder, fileName + ".lock_a"),
+                new File(realmFolder, fileName + ".lock_b"),
+                new File(realmFolder, fileName + ".log"));
         for (File fileToDelete : filesToDelete) {
             if (fileToDelete.exists()) {
                 boolean deleteResult = fileToDelete.delete();
@@ -1817,5 +1809,14 @@ public final class Realm implements Closeable {
      */
     public interface Transaction {
         public void execute(Realm realm);
+    }
+
+    private String getClassSimpleName(Class<?> clazz) {
+        String simpleName = simpleClassNames.get(clazz);
+        if (simpleName == null) {
+            simpleName = clazz.getSimpleName();
+            simpleClassNames.put(clazz, simpleName);
+        }
+        return simpleName;
     }
 }
