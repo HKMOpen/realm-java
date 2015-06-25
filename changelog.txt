@@ -1,4 +1,44 @@
+0.81.1
+ * Fixed memory leak causing Realm to never release Realm objects.
+
 0.81
+ * Introduced RealmModules for working with custom schemas in libraries and apps.
+ * Introduced Realm.getDefaultInstance(), Realm.setDefaultInstance(RealmConfiguration) and Realm.getInstance(RealmConfiguration).
+ * Deprecated most constructors. They have been been replaced by Realm.getInstance(RealmConfiguration) and Realm.getDefaultInstance().
+ * Deprecated Realm.migrateRealmAtPath(). It has been replaced by Realm.migrateRealm(RealmConfiguration).
+ * Deprecated Realm.deleteFile(). It has been replaced by Realm.deleteRealm(RealmConfiguration).
+ * Deprecated Realm.compactFile(). It has been replaced by Realm.compactRealm(RealmConfiguration).
+ * RealmList.add(), RealmList.addAt() and RealmList.set() now copy standalone objects transparently into Realm.
+ * Realm now works with Kotlin (M12+). (thanks @cypressious)
+ * Fixed a performance regression introduced in 0.80.3 occurring during the validation of the Realm schema.
+ * Added a check to give a better error message when null is used as value for a primary key. 
+ * Fixed unchecked cast warnings when building with Realm.
+ * Cleaned up examples (remove old test project).
+ * Added checking for missing generic type in RealmList fields in annotation processor.
+
+0.80.3
+ * Calling Realm.copyToRealmOrUpdate() with an object with a null primary key now throws a proper exception.
+ * Fixed a bug making it impossible to open Realms created by Realm-Cocoa if a model had a primary key defined.
+ * Trying to using Realm.copyToRealmOrUpdate() with an object with a null primary key now throws a proper exception.
+ * RealmChangedListener now also gets called on the same thread that did the commit.
+ * Fixed bug where Realm.createOrUpdateWithJson() reset Date and Binary data to default values if not found in the JSON output.
+ * Fixed a memory leak when using RealmBaseAdapter.
+ * RealmBaseAdapter now allow RealmResults to be null (thanks @zaki50).
+ * Fixed a bug where a change to a model class (RealmList<A> to RealmList<B>) would not throw a RealmMigrationNeededException.
+ * Fixed a bug where where setting multiple RealmLists didn't remove the previously added objects.
+ * Solved ConcurrentModificationException thrown when addChangeListener/removeChangeListener got called in the onChange. (thanks @beeender)
+ * Fixed duplicated listeners in the same realm instance. Trying to add duplicated listeners is ignored now. (thanks @beeender)
+
+0.80.2
+ * Trying to use Realm.copyToRealmOrUpdate() with an object with a null primary key now throws a proper exception.
+ * RealmMigrationNeedException can now return the path to the Realm that needs to be migrated.
+ * Fixed bug where creating a Realm instance with a hashcode collision no longer returned the wrong Realm instance.
+ * Updated Realm Core to version 0.89.2
+   - fixed bug causing a crash when opening an encrypted Realm file on ARM64 devices.
+
+0.80.1
+ * Realm.createOrUpdateWithJson() no longer resets fields to their default value if they are not found in the JSON input.
+ * Realm.compactRealmFile() now uses Realm Core's compact() method which is more failure resilient.
  * Realm.copyToRealm() now correctly handles referenced child objects that are already in the Realm.
  * The ARM64 binary is now properly a part of the Eclipse distribution package.
  * A RealmMigrationExceptionNeeded is now properly thrown if @Index and @PrimaryKey are not set correctly during a migration.
@@ -6,6 +46,14 @@
  * Added Realm.deleteRealmFile(File) method.
  * Fixed bug causing queries to fail if multiple Realms has different field ordering.
  * Fixed bug when using Realm.copyToRealm() with a primary key could crash if default value was already used in the Realm.
+ * Updated Realm Core to version 0.89.0
+   - improved performance for sorting RealmResults.
+   - improved performance for refreshing a Realm after inserting or modifying strings or binary data.
+   - fixed bug causing incorrect result when querying indexed fields.
+   - fixed bug causing corruption of string index when deleting an object where there are duplicate values for the indexed field.
+   - fixed bug causing a crash after compacting the Realm file.
+ * Added RealmQuery.isNull() and RealmQuery.isNotNull() for querying relationships.
+ * Fixed a potential NPE in the RealmList constructor.
 
 0.80
 * Queries on relationships can be case sensitive.

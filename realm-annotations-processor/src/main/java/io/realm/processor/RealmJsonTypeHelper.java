@@ -56,8 +56,6 @@ public class RealmJsonTypeHelper {
                         .nextControlFlow("else")
                             .emitStatement("obj.%s(new Date(json.getLong(\"%s\")))", setter, fieldName)
                         .endControlFlow()
-                    .nextControlFlow("else")
-                        .emitStatement("obj.%s(new Date(0))", setter)
                     .endControlFlow();
             }
 
@@ -77,7 +75,10 @@ public class RealmJsonTypeHelper {
         JAVA_TO_JSON_TYPES.put("byte[]", new JsonToRealmTypeConverter() {
             @Override
             public void emitTypeConversion(String setter, String fieldName, String fieldType, JavaWriter writer) throws IOException {
-                writer.emitStatement("obj.%s(JsonUtils.stringToBytes(json.isNull(\"%s\") ? null : json.getString(\"%s\")))", setter, fieldName, fieldName);
+                writer
+                    .beginControlFlow("if (!json.isNull(\"%s\"))", fieldName)
+                        .emitStatement("obj.%s(JsonUtils.stringToBytes(json.getString(\"%s\")))", setter, fieldName)
+                    .endControlFlow();
             }
 
             @Override
@@ -98,11 +99,9 @@ public class RealmJsonTypeHelper {
                                                         String proxyClass, JavaWriter writer) throws IOException {
         writer
             .beginControlFlow("if (!json.isNull(\"%s\"))", fieldName)
-                .emitStatement("%s %s = standalone ? new %s() : obj.realm.createObject(%s.class)",
-                        qualifiedFieldType, fieldName, qualifiedFieldType, qualifiedFieldType)
-                .emitStatement("%s.populateUsingJsonObject(%s, json.getJSONObject(\"%s\"))",
-                        proxyClass, fieldName, fieldName)
-                .emitStatement("obj.%s(%s)", setter, fieldName)
+                .emitStatement("%s %sObj = %s.createOrUpdateUsingJsonObject(realm, json.getJSONObject(\"%s\"), update)",
+                        qualifiedFieldType, fieldName, proxyClass, fieldName)
+                .emitStatement("obj.%s(%sObj)", setter, fieldName)
             .endControlFlow();
     }
 
@@ -111,13 +110,11 @@ public class RealmJsonTypeHelper {
                                                       JavaWriter writer) throws IOException {
         writer
             .beginControlFlow("if (!json.isNull(\"%s\"))", fieldName)
-                .beginControlFlow("if (standalone)")
-                    .emitStatement("obj.%s(new RealmList<%s>())", setter, fieldTypeCanonicalName)
-                .endControlFlow()
+                .emitStatement("obj.%s().clear()", getter)
                 .emitStatement("JSONArray array = json.getJSONArray(\"%s\")", fieldName)
                 .beginControlFlow("for (int i = 0; i < array.length(); i++)")
-                    .emitStatement("%s item = standalone ? new %s() : obj.realm.createObject(%s.class)", fieldTypeCanonicalName, fieldTypeCanonicalName, fieldTypeCanonicalName)
-                    .emitStatement("%s.populateUsingJsonObject(item, array.getJSONObject(i))", proxyClass)
+                    .emitStatement("%s item = %s.createOrUpdateUsingJsonObject(realm, array.getJSONObject(i), update)",
+                            fieldTypeCanonicalName, proxyClass, fieldTypeCanonicalName)
                     .emitStatement("obj.%s().add(item)", getter)
                 .endControlFlow()
             .endControlFlow();
@@ -132,20 +129,15 @@ public class RealmJsonTypeHelper {
 
     public static void emitFillRealmObjectFromStream(String setter, String fieldName, String fieldTypeCanonicalName, String proxyClass, JavaWriter writer) throws IOException {
         writer
-            .emitStatement("%s %sObj = standalone ? new %s() : obj.realm.createObject(%s.class)", fieldTypeCanonicalName, fieldName, fieldTypeCanonicalName, fieldTypeCanonicalName)
-            .emitStatement("%s.populateUsingJsonStream(%sObj, reader)", proxyClass, fieldName)
+            .emitStatement("%s %sObj = %s.createUsingJsonStream(realm, reader)", fieldTypeCanonicalName, fieldName, proxyClass)
             .emitStatement("obj.%s(%sObj)", setter, fieldName);
     }
 
     public static void emitFillRealmListFromStream(String getter, String setter, String fieldTypeCanonicalName, String proxyClass, JavaWriter writer) throws IOException {
         writer
             .emitStatement("reader.beginArray()")
-            .beginControlFlow("if (standalone)")
-                .emitStatement("obj.%s(new RealmList<%s>())", setter, fieldTypeCanonicalName)
-            .endControlFlow()
             .beginControlFlow("while (reader.hasNext())")
-                .emitStatement("%s item = standalone ? new %s() : obj.realm.createObject(%s.class)", fieldTypeCanonicalName, fieldTypeCanonicalName, fieldTypeCanonicalName)
-                .emitStatement("%s.populateUsingJsonStream(item, reader)", proxyClass)
+                .emitStatement("%s item = %s.createUsingJsonStream(realm, reader)", fieldTypeCanonicalName, proxyClass)
                 .emitStatement("obj.%s().add(item)", getter)
             .endControlFlow()
             .emitStatement("reader.endArray()");

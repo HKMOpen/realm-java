@@ -69,7 +69,7 @@ JNIEXPORT jlong JNICALL Java_io_realm_internal_SharedGroup_nativeBeginImplicit
  * Signature: ()Ljava/lang/String;
  */
 JNIEXPORT jstring JNICALL Java_io_realm_internal_SharedGroup_nativeGetDefaultReplicationDatabaseFileName
-  (JNIEnv *, jclass);
+  (JNIEnv *, jobject);
 
 /*
  * Class:     io_realm_internal_SharedGroup
@@ -134,6 +134,14 @@ JNIEXPORT void JNICALL Java_io_realm_internal_SharedGroup_nativeRollback
  */
 JNIEXPORT jlong JNICALL Java_io_realm_internal_SharedGroup_nativeCreate
   (JNIEnv *, jobject, jstring, jint, jboolean, jboolean, jbyteArray);
+
+/*
+ * Class:     io_realm_internal_SharedGroup
+ * Method:    nativeCompact
+ * Signature: (J)Z
+ */
+JNIEXPORT jboolean JNICALL Java_io_realm_internal_SharedGroup_nativeCompact
+  (JNIEnv *, jobject, jlong);
 
 /*
  * Class:     io_realm_internal_SharedGroup

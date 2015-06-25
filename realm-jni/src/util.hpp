@@ -58,7 +58,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved);
 
 #define CATCH_FILE(fileName) \
     catch (InvalidDatabase&) { \
-        ThrowException(env, IllegalArgument, "Invalid Group file format."); \
+        ThrowException(env, IllegalArgument, "Invalid format of Realm file."); \
     } \
     catch (util::File::PermissionDenied& e) { \
         ThrowException(env, IOFailed, string(fileName), string("Permission denied. ") + e.what()); \
@@ -173,6 +173,7 @@ extern const char *log_tag;
 #define TBL_AND_COL_INDEX_VALID(env,ptr,col)                    TblColIndexValid(env, ptr, col)
 #define COL_INDEX_AND_TYPE_VALID(env,ptr,col,type)              ColIndexAndTypeValid(env, ptr, col, type)
 #define TBL_AND_COL_INDEX_AND_TYPE_VALID(env,ptr,col, type)     TblColIndexAndTypeValid(env, ptr, col, type)
+#define TBL_AND_COL_INDEX_AND_LINK_OR_LINKLIST(env,ptr,col)     TblColIndexAndLinkOrLinkList(env, ptr, col)
 #define INDEX_VALID(env,ptr,col,row)                            IndexValid(env, ptr, col, row)
 #define TBL_AND_INDEX_VALID(env,ptr,col,row)                    TblIndexValid(env, ptr, col, row)
 #define TBL_AND_INDEX_INSERT_VALID(env,ptr,col,row)             TblIndexInsertValid(env, ptr, col, row)
@@ -189,13 +190,14 @@ extern const char *log_tag;
 
 #define ROW_INDEXES_VALID(env,ptr,start,end, range)             (true)
 #define ROW_INDEX_VALID(env,ptr,row)                            (true)
-#defibe ROW_INDEX_VALID_OFFSET(env,ptr,row)                     (true)
+#define ROW_INDEX_VALID_OFFSET(env,ptr,row)                     (true)
 #define TBL_AND_ROW_INDEX_VALID(env,ptr,row)                    (true)
 #define TBL_AND_ROW_INDEX_VALID_OFFSET(env,ptr,row, offset)     (true)
 #define COL_INDEX_VALID(env,ptr,col)                            (true)
 #define TBL_AND_COL_INDEX_VALID(env,ptr,col)                    (true)
 #define COL_INDEX_AND_TYPE_VALID(env,ptr,col,type)              (true)
 #define TBL_AND_COL_INDEX_AND_TYPE_VALID(env,ptr,col, type)     (true)
+#define TBL_AND_COL_INDEX_AND_LINK_OR_LINKLIST(env,ptr,col)     (true)
 #define INDEX_VALID(env,ptr,col,row)                            (true)
 #define TBL_AND_INDEX_VALID(env,ptr,col,row)                    (true)
 #define TBL_AND_INDEX_INSERT_VALID(env,ptr,col,row)             (true)
@@ -391,6 +393,20 @@ inline bool TypeValid(JNIEnv* env, T* pTable, jlong columnIndex, jlong rowIndex,
 }
 
 template <class T>
+inline bool TypeIsLinkLike(JNIEnv* env, T* pTable, jlong columnIndex)
+{
+    size_t col = static_cast<size_t>(columnIndex);
+    int colType = pTable->get_column_type(col);
+    if (colType == type_Link || colType == type_LinkList) {
+        return true;
+    }
+
+    TR_ERR("Expected columnType %d or %d, but got %d", type_Link, type_LinkList, colType)
+    ThrowException(env, IllegalArgument, "ColumnType invalid: expected type_Link or type_LinkList");
+    return false;
+}
+
+template <class T>
 inline bool ColIndexAndTypeValid(JNIEnv* env, T* pTable, jlong columnIndex, int expectColType)
 {
     return ColIndexValid(env, pTable, columnIndex)
@@ -403,12 +419,17 @@ inline bool TblColIndexAndTypeValid(JNIEnv* env, T* pTable, jlong columnIndex, i
         && ColIndexAndTypeValid(env, pTable, columnIndex, expectColType);
 }
 
+template <class T>
+inline bool TblColIndexAndLinkOrLinkList(JNIEnv* env, T* pTable, jlong columnIndex) {
+    return TableIsValid(env, pTable)
+        && TypeIsLinkLike(env, pTable, columnIndex);
+}
+
 inline bool RowColIndexAndTypeValid(JNIEnv* env, Row* pRow, jlong columnIndex, int expectColType)
 {
     return RowIsValid(env, pRow)
         && ColIndexAndTypeValid(env, pRow->get_table(), columnIndex, expectColType);
 }
-
 
 template <class T>
 inline bool IndexAndTypeValid(JNIEnv* env, T* pTable, jlong columnIndex, jlong rowIndex, int expectColType, bool allowMixed)
@@ -419,10 +440,8 @@ inline bool IndexAndTypeValid(JNIEnv* env, T* pTable, jlong columnIndex, jlong r
 template <class T>
 inline bool TblIndexAndTypeValid(JNIEnv* env, T* pTable, jlong columnIndex, jlong rowIndex, int expectColType, bool allowMixed)
 {
-    return TableIsValid(env, pTable)
-        && IndexAndTypeValid(env, pTable, columnIndex, rowIndex, expectColType, allowMixed);
+    return TableIsValid(env, pTable) && IndexAndTypeValid(env, pTable, columnIndex, rowIndex, expectColType, allowMixed);
 }
-
 
 template <class T>
 inline bool TblIndexAndTypeInsertValid(JNIEnv* env, T* pTable, jlong columnIndex, jlong rowIndex, int expectColType)

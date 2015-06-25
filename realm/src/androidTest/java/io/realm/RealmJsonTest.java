@@ -23,7 +23,6 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Date;
@@ -326,7 +325,7 @@ public class RealmJsonTest extends AndroidTestCase {
    public void testCreateAllFromJsonStream_null() throws IOException {
         testRealm.createAllFromJson(AllTypes.class, (InputStream) null);
         assertEquals(0, testRealm.allObjects(AllTypes.class).size());
-    }
+   }
 
     public void testCreateObjectFromJsonStream_allSimpleTypes() throws IOException {
         InputStream in = loadJsonFromAssets("all_simple_types.json");
@@ -452,6 +451,15 @@ public class RealmJsonTest extends AndroidTestCase {
         fail();
     }
 
+    public void testCreateOrUpdateObjectStream_invalidJSonThrows() throws IOException {
+        try {
+            testRealm.createOrUpdateAllFromJson(AllTypesPrimaryKey.class, TestHelper.stringToStream("{"));
+        } catch (RealmException expected) {
+            return;
+        }
+        fail();
+    }
+
     public void testCreateOrUpdateObjectString_noPrimaryKeyThrows() throws IOException {
         try {
             testRealm.createOrUpdateObjectFromJson(AllTypes.class, "{}");
@@ -479,6 +487,33 @@ public class RealmJsonTest extends AndroidTestCase {
         assertEquals("bar", newObj.getColumnString());
     }
 
+    public void testCreateOrUpdateJsonObject_ignoreUnsetProperties() throws IOException {
+        String json = TestHelper.streamToString(loadJsonFromAssets("list_alltypes_primarykey.json"));
+        testRealm.beginTransaction();
+        testRealm.createOrUpdateAllFromJson(AllTypesPrimaryKey.class, json);
+        testRealm.commitTransaction();
+
+        // No-op as no properties should be updated
+        testRealm.beginTransaction();
+        testRealm.createOrUpdateObjectFromJson(AllTypesPrimaryKey.class, "{ \"columnLong\":1 }");
+        testRealm.commitTransaction();
+
+        assertAllTypesPrimaryKeyUpdated();
+    }
+
+    public void testCreateOrUpdateJsonStream_ignoreUnsetProperties() throws IOException {
+        testRealm.beginTransaction();
+        testRealm.createOrUpdateAllFromJson(AllTypesPrimaryKey.class, loadJsonFromAssets("list_alltypes_primarykey.json"));
+        testRealm.commitTransaction();
+
+        // No-op as no properties should be updated
+        testRealm.beginTransaction();
+        testRealm.createOrUpdateObjectFromJson(AllTypesPrimaryKey.class, TestHelper.stringToStream("{ \"columnLong\":1 }"));
+        testRealm.commitTransaction();
+
+        assertAllTypesPrimaryKeyUpdated();
+    }
+
     public void testCreateOrUpdateInputStream() throws IOException {
         testRealm.beginTransaction();
         AllTypesPrimaryKey obj = new AllTypesPrimaryKey();
@@ -486,7 +521,7 @@ public class RealmJsonTest extends AndroidTestCase {
         obj.setColumnString("Foo");
         testRealm.copyToRealm(obj);
 
-        ByteArrayInputStream in = new ByteArrayInputStream("{ \"columnLong\" : 1, \"columnString\" : \"bar\" }".getBytes());
+        InputStream in = TestHelper.stringToStream("{ \"columnLong\" : 1, \"columnString\" : \"bar\" }");
         AllTypesPrimaryKey newObj = testRealm.createOrUpdateObjectFromJson(AllTypesPrimaryKey.class, in);
         testRealm.commitTransaction();
 
@@ -522,6 +557,15 @@ public class RealmJsonTest extends AndroidTestCase {
         try {
             testRealm.createOrUpdateAllFromJson(AllTypes.class, new TestHelper.StubInputStream());
         } catch (IllegalArgumentException expected) {
+            return;
+        }
+        fail();
+    }
+
+    public void testCreateOrUpdateAllStream_invalidJSonThrows() throws IOException {
+        try {
+            testRealm.createOrUpdateAllFromJson(AllTypesPrimaryKey.class, TestHelper.stringToStream("["));
+        } catch (RealmException expected) {
             return;
         }
         fail();
@@ -570,7 +614,7 @@ public class RealmJsonTest extends AndroidTestCase {
         assertEquals("Bar", obj.getColumnString());
         assertEquals(2.23F, obj.getColumnFloat());
         assertEquals(2.234D, obj.getColumnDouble());
-        assertEquals(false, obj.isColumnBoolean());
+        assertEquals(true, obj.isColumnBoolean());
         assertArrayEquals(new byte[] {1,2,3}, obj.getColumnBinary());
         assertEquals(new Date(2000), obj.getColumnDate());
         assertEquals("Dog4", obj.getColumnRealmObject().getName());

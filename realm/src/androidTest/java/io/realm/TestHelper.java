@@ -19,6 +19,7 @@ package io.realm;
 import android.content.Context;
 import android.content.res.AssetManager;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.BufferedReader;
@@ -26,6 +27,8 @@ import java.io.IOException;
 import java.io.InputStream;
 
 import java.io.InputStreamReader;
+import java.util.Random;
+import java.nio.charset.Charset;
 
 public class TestHelper {
 
@@ -47,6 +50,10 @@ public class TestHelper {
         return sb.toString();
     }
 
+    public static InputStream stringToStream(String str) {
+        return new ByteArrayInputStream(str.getBytes(Charset.forName("UTF-8")));
+    }
+
     // Copies a Realm file from assets to app files dir
     public static void copyRealmFromAssets(Context context, String realmPath, String newName) throws IOException {
         AssetManager assetManager = context.getAssets();
@@ -66,6 +73,20 @@ public class TestHelper {
     public static void prepareDatabaseFromAssets(Context context, String realmPath, String newName) throws IOException {
         Realm.deleteRealmFile(context, newName);
         TestHelper.copyRealmFromAssets(context, realmPath, newName);
+    }
+
+    // Returns a random key used by encrypted Realms.
+    public static byte[] getRandomKey() {
+        byte[] key = new byte[64];
+        new Random().nextBytes(key);
+        return key;
+    }
+
+    // Returns a random key from the given seed. Used by encrypted Realms.
+    public static byte[] getRandomKey(long seed) {
+        byte[] key = new byte[64];
+        new Random(seed).nextBytes(key);
+        return key;
     }
 
     public static class StubInputStream extends InputStream {
